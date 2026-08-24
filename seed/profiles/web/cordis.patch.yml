@@ -1,0 +1,24 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+#
+# Use `insert:` only for rows no bundle contributes. dsh-plugin-terminal is
+# listed in package.json's dsh.profile.bundles, so its own cordis.patch.yml
+# already inserts `id: terminal`; inserting it again is a duplicate id and
+# fails the boot. Target the existing row by id instead, as below.
+#
+# An id-targeted `config:` REPLACES the row's config wholesale — it does not
+# merge key by key. Anything you leave out is dropped rather than inherited
+# from the bundle, so list every key you want. Compare the two forms with
+# `dsh web --dump-config` against `dsh web --dump-default-config`.
+
+- id: terminal
+  config:
+    visible: true
+    maxHeight: 200
+    fontSize: 13
+    theme: "dark"
+    autoScroll: true
+    defaultCwd: ""
+- id: dsh-open-in-vscode
+  disabled: true

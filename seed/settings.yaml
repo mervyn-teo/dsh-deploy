@@ -1,0 +1,11 @@
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+llm-pi-ai:
+  providers:
+    kimi-coding:
+      apiKeyEnv: KIMI_CODING_API_KEY
+agent-default-model:
+  provider: kimi-coding
+  model: k3
+locale:
+  preference: en

@@ -1,0 +1,36 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "@liustack/modlens": "^3.21.1",
+    "dsh-open-in-vscode": "github:omdsh-dev/dsh-open-in-vscode",
+    "dsh-plugin-background": "github:mervyn-teo/dsh-plugin-background",
+    "dsh-plugin-collapsible-steps": "github:mervyn-teo/dsh-plugin-collapsible-steps",
+    "dsh-plugin-frieren": "github:mervyn-teo/dsh-plugin-frieren",
+    "dsh-plugin-llm-balance": "^0.2.4",
+    "dsh-plugin-qr-connect": "^0.1.1",
+    "dsh-plugin-quick-actions": "github:mervyn-teo/dsh-plugin-quick-actions",
+    "dsh-plugin-rag": "github:mervyn-teo/dsh-plugin-rag",
+    "dsh-plugin-terminal": "^0.2.0",
+    "dshmarket": "^1.16.2"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-plugin-background",
+        "dsh-plugin-frieren",
+        "dsh-plugin-qr-connect",
+        "dsh-plugin-quick-actions",
+        "dsh-plugin-terminal",
+        "dsh-plugin-collapsible-steps",
+        "dsh-plugin-rag",
+        "@liustack/modlens",
+        "dshmarket",
+        "dsh-plugin-llm-balance",
+        "dsh-open-in-vscode"
+      ]
+    }
+  }
+}

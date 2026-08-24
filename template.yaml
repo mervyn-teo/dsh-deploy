@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  DeepSeek Harness (dsh web) behind Caddy TLS + basic auth on a single EC2
+  instance. One-button deploy: fill in the parameters, create the stack, and
+  open the output URL. Stop the instance when idle to pay storage-only.
+
+Parameters:
+
+  RepoURL:
+    Type: String
+    Description: >-
+      HTTPS git URL of this repo (must be publicly cloneable — the instance
+      clones it at boot). Update the default after pushing to GitHub.
+    Default: "https://github.com/mervyn-teo/dsh-deploy.git"
+
+  DSHDomain:
+    Type: String
+    Description: >-
+      Public hostname pointing at this stack's Elastic IP, e.g.
+      dsh.example.com (enables automatic HTTPS via Let's Encrypt). Leave
+      EMPTY for plain HTTP on the Elastic IP — testing only.
+    Default: ""
+
+  DSHAuthUser:
+    Type: String
+    Description: Basic-auth username protecting the GUI.
+    Default: admin
+
+  DSHAuthPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    Description: >-
+      Basic-auth password (min 12 chars; bcrypt-hashed at boot). MANDATORY —
+      dsh has no built-in auth and can execute shell commands.
+    AllowedPattern: ".{12,}"
+    ConstraintDescription: Must be at least 12 characters.
+
+  DeepSeekApiKey:
+    Type: String
+    NoEcho: true
+    Description: >-
+      Provider API key, consumed via apiKeyEnv in dsh settings.yaml
+      (DEEPSEEK_API_KEY). May be left empty and configured later in the GUI.
+    Default: ""
+
+  InstanceType:
+    Type: String
+    Description: >-
+      ARM (Graviton) instance type. 1 GB works; 2 GB recommended if the agent
+      will run heavy builds. t4g.micro running 24/7 costs roughly $6/mo.
+    Default: t4g.micro
+    AllowedValues: [t4g.micro, t4g.small, t4g.medium]
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: >-
+      OPTIONAL — EC2 key pair for SSH access. Leave empty to run without SSH
+      (recommended unless you need it).
+    Default: ""
+
+  SSHLocation:
+    Type: String
+    Description: >-
+      CIDR allowed to SSH (only used when KeyPairName is set). Restrict this
+      to your IP, e.g. 203.0.113.7/32.
+    Default: "0.0.0.0/0"
+    AllowedPattern: '(\d{1,3}\.){3}\d{1,3}/\d{1,2}'
+    ConstraintDescription: Must be a valid CIDR, e.g. 203.0.113.7/32.
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+  HasDomain: !Not [!Equals [!Ref DSHDomain, ""]]
+
+Resources:
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: dsh web - HTTP/HTTPS from anywhere, SSH restricted
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  SSHIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasKeyPair
+    Properties:
+      GroupId: !GetAtt SecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: !Ref SSHLocation
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      # Amazon Linux 2023, arm64, resolved at deploy time in-region.
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}"
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      MetadataOptions:
+        HttpTokens: required # IMDSv2
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 16
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: dsh-deploy
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/usr/bin/env bash
+            set -euxo pipefail
+
+            # --- Docker + compose plugin -------------------------------------
+            dnf install -y docker git
+            systemctl enable --now docker
+            mkdir -p /usr/libexec/docker/cli-plugins
+            curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+              -o /usr/libexec/docker/cli-plugins/docker-compose
+            chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+            # --- Swap: 1 GB instances can OOM during npm-heavy image builds --
+            if ! swapon --show | grep -q /swapfile; then
+              fallocate -l 1G /swapfile && chmod 600 /swapfile
+              mkswap /swapfile && swapon /swapfile
+              echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
+
+            # --- App ----------------------------------------------------------
+            git clone "${REPO_URL}" /opt/dsh-deploy
+            cd /opt/dsh-deploy
+
+            if [ -n "${DOMAIN}" ]; then
+              DSH_DOMAIN_VALUE="${DOMAIN}"
+              TRUSTED_HOST_VALUE=""
+            else
+              DSH_DOMAIN_VALUE=":80"
+              # Plain HTTP on the Elastic IP: dsh's browser-trust fence 403s
+              # any non-loopback Host it doesn't know, so allowlist our own
+              # public IP (read from IMDSv2 — the EIP is already associated).
+              TOKEN=$(curl -fsS -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" \
+                http://169.254.169.254/latest/api/token)
+              TRUSTED_HOST_VALUE=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
+                http://169.254.169.254/latest/meta-data/public-ipv4)
+            fi
+
+            umask 077
+            # Quoted heredoc: CloudFormation substitutes the auth values into
+            # this script text BEFORE bash runs, and the quoted delimiter
+            # stops bash from re-expanding any $ or backticks in passwords.
+            cat > .env <<'EOF'
+            DSH_AUTH_USER=${AUTH_USER}
+            DSH_AUTH_PASSWORD=${AUTH_PASSWORD}
+            DEEPSEEK_API_KEY=${API_KEY}
+            EOF
+            # ${!DSH_DOMAIN_VALUE}: CloudFormation Sub escape -> literal shell var.
+            echo "DSH_DOMAIN=${!DSH_DOMAIN_VALUE}" >> .env
+            echo "DSH_TRUSTED_HOST=${!TRUSTED_HOST_VALUE}" >> .env
+
+            docker compose up -d --build
+
+            echo "dsh-deploy bootstrap complete" > /var/log/dsh-deploy.done
+          - REPO_URL: !Ref RepoURL
+            DOMAIN: !Ref DSHDomain
+            AUTH_USER: !Ref DSHAuthUser
+            AUTH_PASSWORD: !Ref DSHAuthPassword
+            API_KEY: !Ref DeepSeekApiKey
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+      Tags:
+        - Key: Name
+          Value: dsh-deploy
+
+Outputs:
+
+  URL:
+    Description: >-
+      Open this once the stack finishes (allow ~5 min for the Docker build;
+      watch /var/log/cloud-init-output.log on the instance if it is slow).
+    Value: !If
+      - HasDomain
+      - !Sub "https://${DSHDomain}"
+      - !Sub "http://${ElasticIP}"
+
+  ElasticIP:
+    Description: >-
+      Stable public IP — point your DNS A record here (survives stop/start).
+      While the instance is STOPPED the EIP bills ~$0.005/hr.
+    Value: !Ref ElasticIP
+
+  CostHint:
+    Description: Stop the instance when idle to pay storage-only (~$1.30/mo).
+    Value: !Sub "aws ec2 stop-instances --instance-ids ${Instance}"

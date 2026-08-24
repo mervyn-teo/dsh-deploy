@@ -1,0 +1,35 @@
+services:
+  dsh:
+    build: .
+    image: dsh-deploy:latest
+    init: true
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Provider API key(s) — written to /data/.credentials.yaml on first
+      # boot; must match `apiKeyEnv` in the seeded settings.yaml.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      KIMI_CODING_API_KEY: ${KIMI_CODING_API_KEY:-}
+      # Reverse proxy config (see .env.example).
+      DSH_DOMAIN: ${DSH_DOMAIN:-:80}
+      DSH_AUTH_USER: ${DSH_AUTH_USER:-admin}
+      DSH_AUTH_PASSWORD: ${DSH_AUTH_PASSWORD:-}
+      # Optional: extra Host authority for dsh's trust fence (e.g. a public IP).
+      DSH_TRUSTED_HOST: ${DSH_TRUSTED_HOST:-}
+    volumes:
+      - dsh-home:/data
+    healthcheck:
+      # Hits dsh directly on loopback (loopback hosts are trusted by dsh's
+      # browser-trust fence; the Host header needs no allowlist entry).
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:3080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # First boot seeds $DSH_HOME and npm-installs the web profile's
+      # plugins — allow for that.
+      start_period: 180s
+
+volumes:
+  dsh-home:
