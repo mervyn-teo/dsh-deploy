@@ -43,22 +43,7 @@ The image carries a `seed/` directory — a snapshot of a local DSH setup — th
 
 To re-seed an existing deployment: `docker compose down`, `docker volume rm dsh-deploy_dsh-home` (⚠️ deletes chat sessions too), `docker compose up -d --build`. To change the setup later, edit files under `/data` directly (`docker compose exec dsh bash`) — the seed never overwrites live state.
 
-## Deploy to AWS (one click)
-
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/mervyn-teo/dsh-deploy/main/template.yaml&stackName=dsh-deploy)
-
-> The button downloads `template.yaml` from this repo, and the instance clones the repo at boot — both URLs must stay publicly fetchable, so keep the repo public (or adjust the URLs if you fork it private).
-
-The button opens the CloudFormation console with [`template.yaml`](template.yaml) preloaded. Fill in the form — auth password (required, min 12 chars), domain (optional; empty = plain HTTP on the Elastic IP), API key (optional) — then **Create stack**. About 5 minutes later the stack outputs the GUI URL. The stack includes:
-
-- a `t4g.micro` (ARM, ~$6/mo while running) with 16 GB gp3, IMDSv2, and 1 GB swap for npm-heavy builds
-- a security group opening only 80/443 (+ SSH only if you pick a key pair)
-- an **Elastic IP** — point your DNS A record at it; it survives stop/start
-- a user-data bootstrap: Docker + compose plugin, repo clone, `.env` from your parameters, `docker compose up -d --build` (watch `/var/log/cloud-init-output.log` on the instance if the URL isn't up yet)
-
-**Usage-based billing:** unlike the fixed-price platforms, you can *Stop* the instance when idle and pay storage-only (~$1.30/mo for disk + idle EIP). *Start* it again and the stack picks up where it left off — DSH state lives in a Docker volume on the root disk.
-
-## Deploy to a cloud VM (manual)
+## Deploy to a cloud VM
 
 1. Launch a small Linux instance (Lightsail $3.50 plan or `t4g.micro` works; 1 GB RAM recommended). Open ports **80** and **443**; restrict SSH to your IP.
 2. Point a DNS A record at the instance's static/elastic IP.
