@@ -22,14 +22,6 @@ Caddy handles Let's Encrypt certificates automatically and gates everything behi
 
 > ⚠️ **Anyone past the auth has a coding agent with shell access on the host.** Use a long random password, keep the image updated, and restrict the security group/firewall to 80+443.
 
-## Quick start (local)
-
-```bash
-cp .env.example .env       # set DSH_AUTH_PASSWORD at minimum
-docker compose up -d --build
-# open http://localhost  (plain HTTP locally; TLS needs a real domain)
-```
-
 State (settings, profiles, sessions, provider config) persists in the `dsh-home` volume mounted at `/data` (`$DSH_HOME`).
 
 ## Seeded local setup
@@ -76,9 +68,6 @@ Providers are configured in `$DSH_HOME/settings.yaml` (`llm-pi-ai.providers`), e
 
 - `dsh web` runs as the unprivileged `dsh` user; Caddy runs as root to bind 80/443 (drop-in hardening: move Caddy to high ports + host port mapping if your threat model disallows root).
 - **Loopback-only settings are deliberately unlocked.** dsh gates settings/credentials to loopback twice — a Host-header fence server-side and an `isLoopback` check on the page origin client-side (without both, Settings → Models errors with "settings are unavailable in this browser" and Settings → Plugins renders empty). The entrypoint rewrites `Host`/`Origin` to loopback at the proxy, and the Dockerfile patches the served client bundle to treat every origin as loopback. The security boundary is therefore entirely Caddy's basic auth — justified because anyone past auth can already run arbitrary shell commands through the agent. `Sec-Fetch-Site` is not rewritten, so cross-site (CSRF/DNS-rebinding) requests are still rejected.
-- Smoke-tested locally with plain HTTP (`DSH_DOMAIN=:80`) and end-to-end on AWS (t4g instance, real domain, Let's Encrypt TLS): image builds, container reports healthy, auth returns 401 without/with wrong credentials and 200 with correct ones, dsh runs as the unprivileged `dsh` user, and the Models/Plugins settings pages work through the proxy.
-- Memory: comfortable at 1 GB; 512 MB instances may OOM under load.
-- AWS Marketplace path: once this stabilizes, the same image can be baked into an AMI with a first-boot script for an AMI product listing. Seller registration + AWS security review apply — see AWS's Marketplace seller guide before investing there.
 
 ## License
 
